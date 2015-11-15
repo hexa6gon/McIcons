@@ -12,7 +12,7 @@ class McIcons:
 		self.port = port
 		self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-	def unpack_varint(self):
+	def _unpack_varint(self):
 		i = 0
 		for j in range(5):
 			a = ord(self.s.recv(1))
@@ -21,7 +21,7 @@ class McIcons:
 				break
 		return i
 
-	def pack_varint(self, paramInt):
+	def _pack_varint(self, paramInt):
 		buff = ""
 		while True:
 			i = paramInt & 0x7F
@@ -31,10 +31,10 @@ class McIcons:
 				break
 		return buff
 
-	def pack_data(self, paramString):
-		return self.pack_varint(len(paramString)) + paramString
+	def _pack_data(self, paramString):
+		return self._pack_varint(len(paramString)) + paramString
 
-	def pack_short(self, paramShort):
+	def _pack_short(self, paramShort):
 		return struct.pack('>H', paramShort)
 
 	def connect(self):
@@ -44,20 +44,24 @@ class McIcons:
 	def close(self):
 		self.s.close() 
 
-	def send_handshake_packet(self, payload):
-		self.s.send(self.pack_data("\x00\x04" + self.pack_data(self.host.encode('utf8')) + self.pack_short(self.port) + payload))
+	def send_handshake_packet(self, protocol_version, payload):
+		packet = self._pack_data("\x00" + protocol_version + self._pack_data(self.host.encode('utf8')) + self._pack_short(self.port) + payload)
+		self.s.send(packet)
+		return len(packet)
 
 	def send_request_packet(self):
-		self.s.send(self.pack_data("\x00"))
+		packet = self._pack_data("\x00")
+		self.s.send(packet)
+		return len(packet)
 
 	def read_response_packet(self):
-		length = self.unpack_varint()
-		packetid = self.unpack_varint()
-		string_length = self.unpack_varint()
+		length = self._unpack_varint()
+		packetid = self._unpack_varint()
+		string_length = self._unpack_varint()
 		string = ""
 		while len(string) < string_length:
 			string += self.s.recv(1)
-		return string
+		return {'length' : int(length), 'string' : string}
 
 def main():
 	argparser = argparse.ArgumentParser()
@@ -72,14 +76,18 @@ def main():
 		mcIcons = McIcons(args.host)
 	mcIcons.connect()
 	print("Connected!")
-	mcIcons.send_handshake_packet("\x01")
-	mcIcons.send_request_packet()
-	print("Sent handshake and request packets.")
-	iconJson = json.loads(mcIcons.read_response_packet())
-	print("Readed JSON response.")
+	handshakeLen = mcIcons.send_handshake_packet("\x04", "\x01")
+	requestLen = mcIcons.send_request_packet()
+	print("Sent handshake (" + str(handshakeLen) + " bytes) and request (" + str(requestLen) + " bytes) packets.")
+	response = mcIcons.read_response_packet()
+	responseLen = response['length']
+	iconJson = json.loads(response['string'])
+	print("Readed JSON response (" + str(responseLen) + " bytes).")
 	iconImage = ""
 	if "data:image/png;base64," not in json.dumps(iconJson):
 		print("Icon not found.")
+		mcIcons.close()
+		print("Connection closed.")
 		exit(1)
 	else:
 		iconImage = base64.decodestring(iconJson['favicon'].replace("data:image/png;base64,", ""))
