@@ -4,7 +4,8 @@ import struct
 import json
 import argparse
 import base64
-     
+import os
+
 class McIcons:
 	def __init__(self, host, port=25565):
 		self.host = host
@@ -74,12 +75,20 @@ def main():
 	mcIcons.send_handshake_packet("\x01")
 	mcIcons.send_request_packet()
 	print("Sent handshake and request packets.")
-	iconString = json.loads(mcIcons.read_response_packet())['favicon'].replace("data:image/png;base64,", "")
-	print("Decrypting icon...")
-	iconImage = base64.decodestring(iconString)
+	iconJson = json.loads(mcIcons.read_response_packet())
+	print("Readed JSON response.")
+	iconImage = ""
+	if "data:image/png;base64," not in json.dumps(iconJson):
+		print("Icon not found.")
+		exit(1)
+	else:
+		iconImage = base64.decodestring(iconJson['favicon'].replace("data:image/png;base64,", ""))
+	print("Decrypted icon.")
 	iconFile = open(args.host.replace(".", "-") + ".png", 'wb')
 	iconFile.write(iconImage)
+	print("Icon downloaded to: " + os.path.abspath(args.host.replace(".", "-") + ".png"))
 	iconFile.close()
-	print("Icon downloaded.")
+	mcIcons.close()
+	print("Connection closed.")
 
 if __name__ == "__main__": main()
