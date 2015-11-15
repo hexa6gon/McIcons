@@ -15,10 +15,16 @@ class McIcons:
 	def _unpack_varint(self):
 		i = 0
 		for j in range(5):
-			a = ord(self.s.recv(1))
-			i |= (a & 0x7F) << 7*j
-			if not a & 0x80:
-				break
+			try:
+				a = ord(self.s.recv(1))
+				i |= (a & 0x7F) << 7*j
+				if not a & 0x80:
+					break
+			except:
+				print("Server not responding.")
+				self.close()
+				print("Connection closed.")
+				exit(1)
 		return i
 
 	def _pack_varint(self, paramInt):
@@ -38,8 +44,12 @@ class McIcons:
 		return struct.pack('>H', paramShort)
 
 	def connect(self):
-		self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		self.s.connect((self.host, self.port))
+		try:
+			self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			self.s.connect((self.host, self.port))
+		except:
+			print("Cannot connect to " + self.host + ":" + str(self.port))
+			exit(1)
 
 	def close(self):
 		self.s.close() 
@@ -63,17 +73,43 @@ class McIcons:
 			string += self.s.recv(1)
 		return {'length' : int(length), 'string' : string}
 
+def get_valid_port():
+	port = 0
+	try:
+		inp = raw_input('Enter port (if you want 25565 please press enter): ')
+		if inp == "":
+			return 25565
+		port = int(inp)
+	except ValueError:
+		print("Please enter a number.")
+		port = get_valid_port()
+	return port
+
+def get_valid_hostname():
+	hostname = raw_input('Enter hostname: ').replace(" ", "")
+	while not hostname:
+		print("Please enter a valid hostname.")
+		hostname = raw_input('Enter hostname: ')
+	return hostname
+
 def main():
 	argparser = argparse.ArgumentParser()
-	argparser.add_argument("host", help="Hostname", type=str)
+	argparser.add_argument("--host", "-H", help="Hostname", type=str)
 	argparser.add_argument("--port", "-p", help="Port", type=int)
 	args = argparser.parse_args()
 
-	mcIcons = None 
-	if args.port:
-		mcIcons = McIcons(args.host, args.port)
+	mcIcons = None
+	hostname = ""
+	port = 0
+	if args.host:
+		hostname = args.host
 	else:
-		mcIcons = McIcons(args.host)
+		hostname = get_valid_hostname()
+	if args.port:
+		port = args.port
+	else:
+		port = get_valid_port()
+	mcIcons = McIcons(hostname, port)
 	mcIcons.connect()
 	print("Connected!")
 	handshakeLen = mcIcons.send_handshake_packet("\x04", "\x01")
@@ -81,7 +117,12 @@ def main():
 	print("Sent handshake (" + str(handshakeLen) + " bytes) and request (" + str(requestLen) + " bytes) packets.")
 	response = mcIcons.read_response_packet()
 	responseLen = response['length']
-	iconJson = json.loads(response['string'])
+	iconJson = None
+	try:
+		iconJson = json.loads(response['string'])
+	except:
+		print("Response is invalid (json parser cannot parse this response).")
+		exit(1)
 	print("Readed JSON response (" + str(responseLen) + " bytes).")
 	iconImage = ""
 	if "data:image/png;base64," not in json.dumps(iconJson):
@@ -92,9 +133,9 @@ def main():
 	else:
 		iconImage = base64.decodestring(iconJson['favicon'].replace("data:image/png;base64,", ""))
 	print("Decrypted icon.")
-	iconFile = open(args.host.replace(".", "-") + ".png", 'wb')
+	iconFile = open(hostname.replace(".", "-") + ".png", 'wb')
 	iconFile.write(iconImage)
-	print("Icon downloaded to: " + os.path.abspath(args.host.replace(".", "-") + ".png"))
+	print("Icon downloaded to: " + os.path.abspath(hostname.replace(".", "-") + ".png"))
 	iconFile.close()
 	mcIcons.close()
 	print("Connection closed.")
